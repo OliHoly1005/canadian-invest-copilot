@@ -87,8 +87,10 @@ st.subheader("Ask FinCo Anything")
 user_question = st.text_input("Your question (e.g., retirement, house down-payment, etc.):", key="q")
 
 if user_question:
+      # ——— Safe ticker selection (never empty) ———
     common_tickers = ["XEQT.TO","VEQT.TO","VCN.TO","ZAG.TO","GC=F","CADUSD=X","ZGD.TO","HXS.TO","VGRO.TO","VBAL.TO"]
-    relevant_tickers = [t for t in common_tickers if t.split(".")[0] in user_question.upper()] or common_tickers[:4]
+    mentioned = [t for t in common_tickers if t.split(".")[0] in user_question.upper().replace(" ","")]
+    relevant_tickers = mentioned if mentioned else common_tickers[:4]   # ← always at least 4 tickers
     data, returns = fetch_data(relevant_tickers)
 
     if len(data.columns) > 1:
