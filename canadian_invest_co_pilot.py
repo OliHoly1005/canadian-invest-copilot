@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-import plotly.express as px
 import numpy as np
 from datetime import datetime
 from scipy.optimize import minimize
@@ -64,33 +63,32 @@ def query_ai(prompt, provider, key):
 
 # ====================== Main App ======================
 st.title("Canadian Investing Co-Pilot")
-st.write(f"Today: {datetime.now().strftime('%Y-%m-%d')} | BoC Rate: ~2.25% → expected 2.0% in 2026")
+st.write(f"Today: {datetime.now().strftime('%Y-%m-%d')} | BoC Rate ~2.25% → expected 2.0% in 2026")
 
-# Quick strategy buttons
 col1, col2, col3 = st.columns(3)
 if col1.button("Lazy $50k TFSA Portfolio"):
     tickers = ["XEQT.TO", "ZAG.TO", "HXS.TO"]
-    data, returns = fetch_data(tickers)
-    st.success("70% XEQT.TO • 20% ZAG.TO • 10% HXS.TO → Simple, low-fee, TFSA-friendly")
+    data, _ = fetch_data(tickers)
+    st.success("70% XEQT.TO • 20% ZAG.TO • 10% HXS.TO → Simple & TFSA-friendly")
     st.line_chart(data)
-if col2.button("Recession-Proof (Bonds + Gold)"):
+if col2.button("Recession-Proof"):
     tickers = ["ZAG.TO", "ZGD.TO", "GC=F"]
-    data, returns = fetch_data(tickers)
-    st.info("Defensive mix — hedges CAD weakness and inflation")
+    data, _ = fetch_data(tickers)
+    st.info("Defensive mix — hedges CAD weakness")
     st.line_chart(data)
 if col3.button("Dividend Focus"):
     tickers = ["CDZ.TO", "XDIV.TO", "ZWC.TO"]
-    data, returns = fetch_data(tickers)
+    data, _ = fetch_data(tickers)
     st.balloons()
     st.bar_chart(data.iloc[-1])
 
-# ====================== Chat Interface ======================
+# ====================== Chat ======================
 st.subheader("Ask FinCo Anything")
-user_question = st.text_input("Your question (e.g., 'Build me a retirement portfolio'):", key="q")
+user_question = st.text_input("Your question (e.g., retirement, house down-payment, etc.):", key="q")
 
 if user_question:
     common_tickers = ["XEQT.TO","VEQT.TO","VCN.TO","ZAG.TO","GC=F","CADUSD=X","ZGD.TO","HXS.TO","VGRO.TO","VBAL.TO"]
-    relevant_tickers = [t for t in common_tickers if any(word in user_question.upper() for word in t.split('.')).split()] or common_tickers[:4]
+    relevant_tickers = [t for t in common_tickers if t.split(".")[0] in user_question.upper()] or common_tickers[:4]
     data, returns = fetch_data(relevant_tickers)
 
     if len(data.columns) > 1:
@@ -101,7 +99,6 @@ if user_question:
         fig.update_layout(height=600, title=f"Live Data: {', '.join(data.columns)}")
         st.plotly_chart(fig, use_container_width=True)
 
-    # ====================== NEW FINCO PROMPT ======================
     prompt = f"""
 You are FinCo, the ultimate Canadian fiduciary co-pilot — always 100% in my best interest.
 
@@ -116,18 +113,13 @@ Live Data ({datetime.now().strftime('%B %d, %Y')}):
 • 1-month avg return: {returns.mean().mean()*30:.1%}
 
 Current Context (Dec 2025):
-• BoC rate 2.25% → cutting to 2.0% (favors bonds)
+• BoC rate 2.25% → cutting to 2.0%
 • CAD/USD ≈ 0.72 (weak loonie)
 • Key themes: EV/hydrogen push, slowing immigration, tariff risk
 
-Give a clear, low-cost, tax-smart plan:
-• 5–7 specific CAD ETFs/GICs only
-• Exact % allocations in a table
-• Realistic return & risk numbers
-• Rebalancing triggers
-• Next touch-base suggestion
-
-Respond in encouraging bullets + Markdown table. No jargon. No high-fee funds.
+Give a clear, low-cost, tax-smart plan in bullets + Markdown table.
+5–7 specific CAD ETFs/GICs only. Realistic returns & risks. Rebalancing triggers. Next touch-base.
+No jargon. No high-fee funds.
 """
 
     with st.spinner("FinCo is building your plan…"):
@@ -136,8 +128,7 @@ Respond in encouraging bullets + Markdown table. No jargon. No high-fee funds.
     st.markdown("### FinCo's Personalized Advice")
     st.markdown(ai_response)
 
-    # ====================== Optimization (only if requested) ======================
-    if any(word in user_question.lower() for word in ["portfolio", "optimize", "allocation", "weights"]) or st.button("Show Optimized Weights & Frontier", type="primary"):
+    if any(w in user_question.lower() for w in ["portfolio", "optimize", "weights", "allocation"]) or st.button("Show Optimization & Frontier", type="primary"):
         if len(returns.columns) >= 2:
             weights = optimize_portfolio(returns)
             port_return = np.sum(returns.mean() * weights) * 252
@@ -152,7 +143,6 @@ Respond in encouraging bullets + Markdown table. No jargon. No high-fee funds.
             with c1: st.metric("Expected Annual Return", f"{port_return:.1%}")
             with c2: st.metric("Annual Risk", f"{port_vol:.1%}")
 
-            # Efficient Frontier
             target_returns = np.linspace(returns.mean().sum()*252*0.5, returns.mean().sum()*252*1.5, 30)
             vols = []
             for tr in target_returns:
@@ -174,11 +164,10 @@ Respond in encouraging bullets + Markdown table. No jargon. No high-fee funds.
             fig.update_layout(title="Efficient Frontier", height=500, template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
 
-# ====================== Sidebar Footer ======================
 st.sidebar.markdown("""
 ### Pro Tips
-- Use TFSA first — tax-free growth!
-- VGRO/VBAL = all-in-one solutions
-- Hedge weak CAD with HXS.TO or unhedged global ETFs
-- Rebalance once a year or at 10% drift
+- TFSA first → tax-free forever
+- VGRO/VBAL = perfect all-in-one ETFs
+- Hedge weak CAD with HXS.TO or unhedged global
+- Rebalance yearly or at 10% drift
 """)
