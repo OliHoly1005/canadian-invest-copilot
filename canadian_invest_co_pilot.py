@@ -88,86 +88,73 @@ user_question = st.text_input("Your question (e.g., retirement, house down-payme
 
 if user_question:
     # ——— ULTRA-SAFE TICKER SELECTION (never crashes) ———
-common_tickers = ["XEQT.TO", "VEQT.TO", "VCN.TO", "ZAG.TO", "GC=F", "CADUSD=X", "ZGD.TO", "HXS.TO", "VGRO.TO", "VBAL.TO"]
+    common_tickers = ["XEQT.TO", "VEQT.TO", "VCN.TO", "ZAG.TO", "GC=F", "CADUSD=X", "ZGD.TO", "HXS.TO", "VGRO.TO", "VBAL.TO"]
+    mentioned = [t for t in common_tickers if t.split(".")[0] in user_question.upper().replace(" ", "")]
+    relevant_tickers = mentioned if mentioned else ["XEQT.TO", "VEQT.TO", "ZAG.TO", "VGRO.TO"]
+    relevant_tickers = list(dict.fromkeys(relevant_tickers))[:8]
+    
+    data, returns = fetch_data(relevant_tickers)
 
-# Find tickers mentioned in the question
-mentioned = [t for t in common_tickers if t.split(".")[0] in user_question.upper().replace(" ", "")]
-
-# Always use at least 4 solid tickers if nothing was mentioned
-relevant_tickers = mentioned if mentioned else ["XEQT.TO", "VEQT.TO", "ZAG.TO", "VGRO.TO"]
-
-# Final safety net: force list and remove duplicates
-relevant_tickers = list(dict.fromkeys(relevant_tickers))[:8]
-
-# Debug (optional – you can delete this line later)
-# st.caption(f"Pulling live data for: {', '.join(relevant_tickers)}")
-
-data, returns = fetch_data(relevant_tickers)
-
-prompt = f"""
+    prompt = f"""
 You are FinCo, the ultimate Canadian fiduciary co-pilot — always 100% in my best interest.
-
 User Profile:
 • Budget: ${investment_amount:,} CAD
 • Goal/Question: {user_question}
 • Risk Tolerance: {risk_tolerance}/10
 • Prioritize: TFSA → RRSP → FHSA → non-reg
-
 Live Data ({datetime.now().strftime('%B %d, %Y')}):
 • Latest prices: {dict(data.iloc[-1].round(2))}
 • 1-month avg return: {returns.mean().mean()*30:.1%}
-
 Current Context (Dec 2025):
 • BoC rate 2.25% → cutting to 2.0%
 • CAD/USD ≈ 0.72 (weak loonie)
 • Key themes: EV/hydrogen push, slowing immigration, tariff risk
-
 Give a clear, low-cost, tax-smart plan in bullets + Markdown table.
 5–7 specific CAD ETFs/GICs only. Realistic returns & risks. Rebalancing triggers. Next touch-base.
 No jargon. No high-fee funds.
 """
 
-with st.spinner("FinCo is building your plan…"):
-    ai_response = query_ai(prompt, api_provider, api_key)
+    with st.spinner("FinCo is building your plan…"):
+        ai_response = query_ai(prompt, api_provider, api_key)
 
-st.markdown("### FinCo's Personalized Advice")
-st.markdown(ai_response)
+    st.markdown("### FinCo's Personalized Advice")
+    st.markdown(ai_response)
 
-if any(w in user_question.lower() for w in ["portfolio", "optimize", "weights", "allocation"]) or st.button("Show Optimization & Frontier", type="primary"):
-    if len(returns.columns) >= 2:
-        weights = optimize_portfolio(returns)
-        port_return = np.sum(returns.mean() * weights) * 252
-        port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
+    if any(w in user_question.lower() for w in ["portfolio", "optimize", "weights", "allocation"]) or st.button("Show Optimization & Frontier", type="primary"):
+        if len(returns.columns) >= 2:
+            weights = optimize_portfolio(returns)
+            port_return = np.sum(returns.mean() * weights) * 252
+            port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
 
-        st.markdown("### Optimized Portfolio (Max Sharpe)")
-        weight_df = pd.DataFrame({"Ticker": returns.columns, "Allocation %": (weights*100).round(1)})
-        weight_df = weight_df.sort_values("Allocation %", ascending=False)
-        st.dataframe(weight_df, use_container_width=True, hide_index=True)
+            st.markdown("### Optimized Portfolio (Max Sharpe)")
+            weight_df = pd.DataFrame({"Ticker": returns.columns, "Allocation %": (weights*100).round(1)})
+            weight_df = weight_df.sort_values("Allocation %", ascending=False)
+            st.dataframe(weight_df, use_container_width=True, hide_index=True)
 
-        c1, c2 = st.columns(2)
-        with c1: st.metric("Expected Annual Return", f"{port_return:.1%}")
-        with c2: st.metric("Annual Risk", f"{port_vol:.1%}")
+            c1, c2 = st.columns(2)
+            with c1: st.metric("Expected Annual Return", f"{port_return:.1%}")
+            with c2: st.metric("Annual Risk", f"{port_vol:.1%}")
 
-        target_returns = np.linspace(returns.mean().sum()*252*0.5, returns.mean().sum()*252*1.5, 30)
-        vols = []
-        for tr in target_returns:
-            cons = (
-                {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
-                {'type': 'eq', 'fun': lambda x: np.sum(returns.mean() * x) * 252 - tr}
-            )
-            res = minimize(lambda w: np.dot(w.T, np.dot(returns.cov()*252, w)),
-                           np.array([1/len(returns.columns)]*len(returns.columns)),
-                           method='SLSQP', bounds=tuple((0,1) for _ in returns.columns), constraints=cons)
-            if res.success:
-                vols.append(np.sqrt(res.fun))
-            else:
-                vols.append(np.nan)
+            target_returns = np.linspace(returns.mean().sum()*252*0.5, returns.mean().sum()*252*1.5, 30)
+            vols = []
+            for tr in target_returns:
+                cons = (
+                    {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+                    {'type': 'eq', 'fun': lambda x: np.sum(returns.mean() * x) * 252 - tr}
+                )
+                res = minimize(lambda w: np.dot(w.T, np.dot(returns.cov()*252, w)),
+                               np.array([1/len(returns.columns)]*len(returns.columns)),
+                               method='SLSQP', bounds=tuple((0,1) for _ in returns.columns), constraints=cons)
+                if res.success:
+                    vols.append(np.sqrt(res.fun))
+                else:
+                    vols.append(np.nan)
 
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=vols, y=target_returns, mode='lines', name='Efficient Frontier', line=dict(color='#00CED1')))
-        fig.add_trace(go.Scatter(x=[port_vol], y=[port_return], mode='markers', marker=dict(size=16, color='red'), name='Your Portfolio'))
-        fig.update_layout(title="Efficient Frontier", height=500, template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=vols, y=target_returns, mode='lines', name='Efficient Frontier', line=dict(color='#00CED1')))
+            fig.add_trace(go.Scatter(x=[port_vol], y=[port_return], mode='markers', marker=dict(size=16, color='red'), name='Your Portfolio'))
+            fig.update_layout(title="Efficient Frontier", height=500, template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
 
 st.sidebar.markdown("""
 ### Pro Tips
