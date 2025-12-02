@@ -87,19 +87,22 @@ st.subheader("Ask FinCo Anything")
 user_question = st.text_input("Your question (e.g., retirement, house down-payment, etc.):", key="q")
 
 if user_question:
-      # ——— Safe ticker selection (never empty) ———
-    common_tickers = ["XEQT.TO","VEQT.TO","VCN.TO","ZAG.TO","GC=F","CADUSD=X","ZGD.TO","HXS.TO","VGRO.TO","VBAL.TO"]
-    mentioned = [t for t in common_tickers if t.split(".")[0] in user_question.upper().replace(" ","")]
-    relevant_tickers = mentioned if mentioned else common_tickers[:4]   # ← always at least 4 tickers
+        # ——— ULTRA-SAFE TICKER SELECTION (never crashes) ———
+    common_tickers = ["XEQT.TO", "VEQT.TO", "VCN.TO", "ZAG.TO", "GC=F", "CADUSD=X", "ZGD.TO", "HXS.TO", "VGRO.TO", "VBAL.TO"]
+    
+    # Find tickers mentioned in the question
+    mentioned = [t for t in common_tickers if t.split(".")[0] in user_question.upper().replace(" ", "")]
+    
+    # Always use at least 4 solid tickers if nothing was mentioned
+    relevant_tickers = mentioned if mentioned else ["XEQT.TO", "VEQT.TO", "ZAG.TO", "VGRO.TO"]
+    
+    # Final safety net: force list and remove duplicates
+    relevant_tickers = list(dict.fromkeys(relevant_tickers))[:8]
+    
+    # Debug (optional – you can delete this line later)
+    # st.caption(f"Pulling live data for: {', '.join(relevant_tickers)}")
+    
     data, returns = fetch_data(relevant_tickers)
-
-    if len(data.columns) > 1:
-        fig = make_subplots(rows=2, cols=1, subplot_titles=("Price History", "Daily Returns %"))
-        for col in data.columns:
-            fig.add_trace(go.Scatter(y=data[col], name=col), row=1, col=1)
-            fig.add_trace(go.Bar(y=returns[col]*100, name=col, opacity=0.6), row=2, col=1)
-        fig.update_layout(height=600, title=f"Live Data: {', '.join(data.columns)}")
-        st.plotly_chart(fig, use_container_width=True)
 
     prompt = f"""
 You are FinCo, the ultimate Canadian fiduciary co-pilot — always 100% in my best interest.
