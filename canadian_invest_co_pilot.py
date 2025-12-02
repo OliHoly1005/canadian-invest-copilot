@@ -18,9 +18,16 @@ investment_amount = st.sidebar.number_input("Investment Amount (CAD)", 1000, 100
 # ====================== Data & Optimizer ======================
 @st.cache_data(ttl=300)
 def fetch_data(tickers, period="1mo"):
-    data = yf.download(tickers, period=period)["Adj Close"]
-    returns = data.pct_change().dropna()
-    return data, returns
+    if not tickers:
+        tickers = ["XEQT.TO", "VEQT.TO", "ZAG.TO", "VGRO.TO"]  # ultimate fallback
+    data = yf.download(tickers, period=period, auto_adjust=True, progress=False)
+    if data.empty or "Close" not in data.columns:
+        data = yf.download(tickers, period=period, auto_adjust=True, progress=False)
+    closes = data["Close"] if isinstance(data.columns, pd.MultiIndex) else data
+    if closes.ndim > 1:
+        closes = closes.droplevel(0, axis=1) if closes.columns.nlevels > 1 else closes
+    returns = closes.pct_change().dropna()
+    return closes, returns
 
 def optimize_portfolio(returns, risk_free_rate=0.02):
     n_assets = returns.shape[1]
@@ -30,8 +37,9 @@ def optimize_portfolio(returns, risk_free_rate=0.02):
         return -(port_return - risk_free_rate) / port_vol
     constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
     bounds = tuple((0, 1) for _ in range(n_assets))
-    result = minimize(neg_sharpe, np.array([1/n_assets]*n_assets), method='SLSQP', bounds=bounds, constraints=constraints)
-    return result.x
+    result = minimize(neg_sharpe, np.array([1/n_assets]*n_assets), method='SLSQP',
+                      bounds=bounds, constraints=constraints)
+    return result.x if result.success else np.ones(n_assets) / n_assets
 
 # ====================== AI Query ======================
 def query_ai(prompt, provider, key):
@@ -52,7 +60,7 @@ def query_ai(prompt, provider, key):
         payload = {"contents": [{"parts": [{"text": prompt}]}]}
         headers = {}
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
         if provider == "Gemini 1.5 (Google)":
             return response.json()["candidates"][0]["content"]["parts"][0]["text"]
@@ -87,28 +95,32 @@ st.subheader("Ask FinCo Anything")
 user_question = st.text_input("Your question (e.g., retirement, house down-payment, etc.):", key="q")
 
 if user_question:
-    # ——— ULTRA-SAFE TICKER SELECTION (never crashes) ———
-    common_tickers = ["XEQT.TO", "VEQT.TO", "VCN.TO", "ZAG.TO", "GC=F", "CADUSD=X", "ZGD.TO", "HXS.TO", "VGRO.TO", "VBAL.TO"]
+    # ——— ULTRA-SAFE TICKER SELECTION ———
+    common_tickers = ["XEQT.TO","VEQT.TO","VCN.TO","ZAG.TO","GC=F","CADUSD=X","ZGD.TO","HXS.TO","VGRO.TO","VBAL.TO"]
     mentioned = [t for t in common_tickers if t.split(".")[0] in user_question.upper().replace(" ", "")]
     relevant_tickers = mentioned if mentioned else ["XEQT.TO", "VEQT.TO", "ZAG.TO", "VGRO.TO"]
     relevant_tickers = list(dict.fromkeys(relevant_tickers))[:8]
-    
+
     data, returns = fetch_data(relevant_tickers)
 
     prompt = f"""
 You are FinCo, the ultimate Canadian fiduciary co-pilot — always 100% in my best interest.
+
 User Profile:
 • Budget: ${investment_amount:,} CAD
 • Goal/Question: {user_question}
 • Risk Tolerance: {risk_tolerance}/10
 • Prioritize: TFSA → RRSP → FHSA → non-reg
+
 Live Data ({datetime.now().strftime('%B %d, %Y')}):
 • Latest prices: {dict(data.iloc[-1].round(2))}
 • 1-month avg return: {returns.mean().mean()*30:.1%}
+
 Current Context (Dec 2025):
 • BoC rate 2.25% → cutting to 2.0%
 • CAD/USD ≈ 0.72 (weak loonie)
 • Key themes: EV/hydrogen push, slowing immigration, tariff risk
+
 Give a clear, low-cost, tax-smart plan in bullets + Markdown table.
 5–7 specific CAD ETFs/GICs only. Realistic returns & risks. Rebalancing triggers. Next touch-base.
 No jargon. No high-fee funds.
