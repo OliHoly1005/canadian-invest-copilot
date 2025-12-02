@@ -118,32 +118,61 @@ if user_question:
         fig.update_layout(height=600, title=f"Data for: {', '.join(relevant_tickers)}")
         st.plotly_chart(fig)
     
-    # Build prompt
-    prompt = f"""
-    You are a CFA-certified Canadian investment strategist. Focus on bonds, ETFs, currencies, commodities, stocks.
-    User: {user_question}
-    Amount: ${investment_amount:,} CAD | Risk: {risk_tolerance}/10 | Accounts: Assume TFSA/RRSP unless specified.
-    Latest Data ({datetime.now().strftime('%Y-%m-%d')}):
-    Prices: {data.iloc[-1].to_dict()}
-    1-Mo Returns: {returns.mean()*30:.2%} avg.
-    
-    Respond: Practical advice, 3-5 bullet steps, risks/taxes (e.g., FHSA for first home). No jargon overload.
-    """
-    
-    # Get AI response
-    with st.spinner("Strategizing with AI..."):
-        ai_response = query_ai(prompt, api_provider, api_key)
-    st.markdown(f"**AI Advice:** {ai_response}")
-    
-    # Bonus: Optimize if relevant
-    if "portfolio" in user_question.lower() or st.button("Optimize This Portfolio"):
+    # ──────────────────────────────────────────────────────────────
+    # Optional: Show portfolio optimization if the user wants it
+    # ──────────────────────────────────────────────────────────────
+    if ("portfolio" in user_question.lower() or 
+        "optimize" in user_question.lower() or 
+        "allocation" in user_question.lower() or 
+        st.button("Show Optimized Weights & Efficient Frontier", type="primary")):
+
         if len(returns.columns) >= 2:
             weights = optimize_portfolio(returns)
             port_return = np.sum(returns.mean() * weights) * 252
             port_vol = np.sqrt(np.dot(weights.T, np.dot(returns.cov() * 252, weights)))
-            st.write("**Optimized Weights:**", dict(zip(returns.columns, weights.round(3))))
-            st.metric("Expected Annual Return", f"{port_return:.1%}", delta=f"{port_return - 0.05:.1%}")
-            st.metric("Annual Volatility", f"{port_vol:.1%}")
+
+            st.markdown("### Optimized Portfolio (Max Sharpe Ratio)")
+            weight_df = pd.DataFrame({
+                "Ticker": returns.columns,
+                "Allocation %": (weights * 100).round(1)
+            }).sort_values(by="Allocation %", ascending=False)
+            st.dataframe(weight_df, use_container_width=True, hide_index=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Expected Annual Return", f"{port_return:.1%}")
+            with col2:
+                st.metric("Annual Volatility (Risk)", f"{port_vol:.1%}")
+
+            # Efficient frontier plot (keep your existing frontier code here)
+            target_returns = np.linspace(returns.mean().sum()*252*0.5, returns.mean().sum()*252*1.5, 30)
+            vols = []
+            for tr in target_returns:
+                cons = (
+                    {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+                    {'type': 'eq', 'fun': lambda x: np.sum(returns.mean() * x) * 252 - tr}
+                )
+                res = minimize(
+                    lambda w: np.dot(w, np.dot(returns.cov() * 252, w)),
+                    np.array([1/len(returns.columns)]*len(returns.columns)),
+                    method='SLSQP',
+                    bounds=tuple((0,1) for _ in returns.columns),
+                    constraints=cons
+                )
+                if res.success:
+                    vols.append(np.sqrt(res.fun))
+                else:
+                    vols.append(np.nan)
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=vols, y=target_returns, mode='lines', name='Efficient Frontier', line=dict(color='royalblue')))
+            fig.add_trace(go.Scatter(x=[port_vol], y=[port_return], mode='markers', 
+                                   marker=dict(size=14, color='red'), name='Your Optimal Portfolio'))
+            fig.update_layout(title="Efficient Frontier", xaxis_title="Risk (Volatility)", yaxis_title="Expected Return", 
+                            height=500, template="plotly_dark")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Need at least 2 assets to optimize.")
             
             # Efficient frontier plot
             target_returns = np.linspace(returns.mean().sum()*252*0.5, returns.mean().sum()*252*1.5, 20)
